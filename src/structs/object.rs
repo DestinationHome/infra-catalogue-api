@@ -112,13 +112,19 @@ impl Object {
     pub fn localize(&mut self, raw: &RawDocument, locale: Option<Locale>) {
         let iso_code = locale.unwrap_or_default().to_string();
         
-        self.name = Object::extract_str(raw, "names", &iso_code);
-        self.description = Object::extract_str(raw, "descriptions", &iso_code);
-        self.maker = Object::extract_str(raw, "maker", &iso_code);
+        self.name = Object::extract_str(raw, "names", &iso_code)
+            .or(Object::extract_str(raw, "names", "default"));
+
+        self.description = Object::extract_str(raw, "descriptions", &iso_code)
+            .or(Object::extract_str(raw, "descriptions", "default"));
+
+        self.maker = Object::extract_str(raw, "maker", &iso_code)
+            .or(Object::extract_str(raw, "maker", "default"));
 
         if raw.get_document("legal").is_ok() {
             self.legal = Some(Legal {
                 age_rating: Object::extract_obj(raw, "legal.age_rating", &iso_code)
+                    .or(Object::extract_obj(raw, "legal.age_rating", "default")),
             });
         }
     }
