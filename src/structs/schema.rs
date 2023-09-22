@@ -30,7 +30,7 @@ impl Query {
 
                     // Translate the object to the requested locale
                     let document = cursor.current();
-                    object.localize(document, locale);
+                    object.complete(document, locale);
 
                     uuids.push(object.uuid.clone());
                     results.push(object);
@@ -61,7 +61,7 @@ impl Query {
             match cursor.deserialize_current() {
                 Ok(mut object) => {
                     let document = cursor.current();
-                    object.localize(document, locale);
+                    object.complete(document, locale);
 
                     return Ok(object);
                 },

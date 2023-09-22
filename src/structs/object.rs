@@ -30,9 +30,15 @@ pub struct Data {
 
 #[derive(Serialize, Deserialize, SimpleObject)]
 pub struct Entitlements {
-    pub entitlement_id: String,
-    pub category_id: String,
-    pub product_id: String,
+    pub entitlement_id: Option<Vec<EntitlementEntry>>,
+    pub category_id: Option<Vec<EntitlementEntry>>,
+    pub product_id: Option<Vec<EntitlementEntry>>,
+}
+
+#[derive(Serialize, Deserialize, SimpleObject)]
+pub struct EntitlementEntry {
+    pub territory: String,
+    pub value: String,
 }
 
 #[derive(Serialize, Deserialize, SimpleObject)]
@@ -55,11 +61,26 @@ pub struct Heat {
     pub net: Option<u32>,
 }
 
+#[derive(Serialize, Deserialize, Enum, Clone, Copy, Eq, PartialEq)]
+pub enum Type {
+    Reward,
+    Premium,
+    Other,
+}
+
+impl Default for Type {
+    fn default() -> Self {
+        Type::Other
+    }
+}
+
 #[derive(Serialize, Deserialize, SimpleObject)]
 pub struct Object {
     pub uuid: String,
 
     pub version: Version,
+    #[serde(skip_deserializing)]
+    pub r#type: Type,
 
     #[serde(skip_deserializing)]
     pub name: Option<String>,
@@ -109,7 +130,7 @@ impl Object {
         bson::from_bson::<T>(parsed).ok()
     }
 
-    pub fn localize(&mut self, raw: &RawDocument, locale: Option<Locale>) {
+    pub fn complete(&mut self, raw: &RawDocument, locale: Option<Locale>) {
         let iso_code = locale.unwrap_or_default().to_string();
         
         self.name = Object::extract_str(raw, "names", &iso_code)
@@ -126,6 +147,16 @@ impl Object {
                 age_rating: Object::extract_obj(raw, "legal.age_rating", &iso_code)
                     .or(Object::extract_obj(raw, "legal.age_rating", "default")),
             });
+        }
+
+        if let Some(entitlements) = &mut self.entitlements {
+            if let Some(entitlement_id) = &mut entitlements.entitlement_id {
+                if entitlement_id.iter_mut().any(|e| vec!["LUA_REWARD", "AUTOMATIC_REWARD"].contains(&e.value.as_str())) {
+                    self.r#type = Type::Reward;
+                } else if entitlement_id.iter_mut().any(|e| e.value.len() == 26) {
+                    self.r#type = Type::Premium;
+                }
+            }
         }
     }
 }

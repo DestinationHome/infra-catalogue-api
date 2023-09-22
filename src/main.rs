@@ -49,8 +49,8 @@ async fn graphql_playground() -> HttpResponse {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env_logger::init();
     dotenv::dotenv().ok();
+    env_logger::init();
 
     let mongo_uri = std::env::var("MONGO_URI").expect("MONGO_URI must be set");
     let mongo_client = mongodb::Client::with_uri_str(mongo_uri).await.unwrap();
