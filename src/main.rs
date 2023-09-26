@@ -36,6 +36,7 @@ lazy_static::lazy_static! {
     };
 }
 
+#[cfg(debug_assertions)]
 async fn index(schema: web::Data<ObjectSchema>, req: GraphQLRequest) -> GraphQLResponse {
     schema.execute(req.into_inner()).await.into()
 }
@@ -54,7 +55,7 @@ async fn main() -> std::io::Result<()> {
 
     let mongo_uri = std::env::var("MONGO_URI").expect("MONGO_URI must be set");
     let mongo_client = mongodb::Client::with_uri_str(mongo_uri).await.unwrap();
-    let mongo_db = mongo_client.database("pshome_ohs");
+    let mongo_db = mongo_client.default_database().expect("The MongoDB URI must have a database at the end.");
     let mongo_collection = mongo_db.collection("odc");
 
     let database = Database {
@@ -68,6 +69,7 @@ async fn main() -> std::io::Result<()> {
         EmptyMutation, 
         EmptySubscription
     )
+    .disable_introspection()
     .data(database.clone())
     .finish();
 
@@ -75,23 +77,37 @@ async fn main() -> std::io::Result<()> {
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().expect("PORT must be a number between 0 and 65535");    
 
     HttpServer::new(move || {
-        // TODO: CHANGE FOR PRODUCTION
-        let cors = Cors::default()
-            .allow_any_origin()
-            .allow_any_method()
-            .allow_any_header()
-            .send_wildcard()
+        let mut cors = Cors::default()
+            .allowed_origin("https://web.destinationhome.live/")
+            .allowed_methods(vec!["GET", "POST", "OPTIONS", "HEAD"])
+            .allowed_header(actix_web::http::header::CONTENT_TYPE)
             .max_age(3600);
 
-        App::new()
+        #[cfg(debug_assertions)]
+        {
+            cors = Cors::default()
+                .allow_any_header()
+                .allow_any_method()
+                .allow_any_origin()
+                .send_wildcard()
+                .max_age(3600);
+        }
+
+        let mut app = App::new()
             .app_data(web::Data::new(schema.clone()))
-            .wrap(cors)
-            .service(web::resource("/").guard(guard::Post()).to(index))
-            .service(
+            .wrap(cors);
+
+        #[cfg(debug_assertions)]
+        {
+            app = app.service(
                 web::resource("/")
                     .guard(guard::Get())
                     .to(graphql_playground),
-            )}
+            )
+        }
+
+        app
+        }
     )
         .bind((host, port))?
         .run()
