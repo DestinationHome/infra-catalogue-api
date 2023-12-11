@@ -94,7 +94,7 @@ pub struct Metadata {
     pub r#type: ObjectType,
 
     // Furniture
-    pub furniture_type: Option<String>,
+    pub furniture_type: Option<FurnitureType>,
 
     // Clothing
     pub clothing_type: Option<ClothingType>,
@@ -127,6 +127,23 @@ pub enum ClothingType {
     BOTTOM = 6,
     FEET = 7,
     OUTFIT = 8
+}
+
+#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq)]
+#[repr(u8)]
+pub enum FurnitureType {
+    APPLIANCE = 0,
+    CHAIR = 1,
+    CUBE = 2,
+    FLOORING = 3,
+    FOOTSTOOL = 4,
+    FRAME = 5,
+    LIGHT = 6,
+    ORNAMENT = 7,
+    PICTURE = 8,
+    SOFA = 9,
+    STORAGE = 10,
+    TABLE = 11
 }
 
 #[derive(Serialize, Deserialize, SimpleObject)]
