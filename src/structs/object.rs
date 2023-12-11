@@ -122,9 +122,9 @@ pub enum ClothingType {
     HAIR = 1,
     JEWELRY = 2,
     GLASSES = 3,
-    TOP = 4,
+    TORSO = 4,
     HANDS = 5,
-    BOTTOM = 6,
+    LEGS = 6,
     FEET = 7,
     OUTFIT = 8
 }
