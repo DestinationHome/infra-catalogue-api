@@ -1,6 +1,7 @@
 use async_graphql::{SimpleObject, Enum};
 use bson::RawDocument;
 use serde::{Serialize, Deserialize};
+use serde_repr::{Serialize_repr, Deserialize_repr};
 
 #[derive(Serialize, Deserialize, SimpleObject)]
 pub struct Version {
@@ -74,6 +75,60 @@ impl Default for Type {
     }
 }
 
+#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq)]
+#[repr(u8)]
+pub enum Gender {
+    Male,
+    Female
+}
+
+#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq)]
+#[repr(u8)]
+pub enum SceneType {
+    Apartment,
+    Clubhouse
+}
+
+#[derive(Serialize, Deserialize, SimpleObject)]
+pub struct Metadata {
+    pub r#type: ObjectType,
+
+    // Furniture
+    pub furniture_type: Option<String>,
+
+    // Clothing
+    pub clothing_type: Option<ClothingType>,
+    pub genders: Option<Vec<Gender>>,
+
+    // Scenes
+    pub scene_type: Option<SceneType>,
+}
+
+#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ObjectType {
+    CLOTHING = 0,
+    FURNITURE = 1,
+    PORTABLE = 2,
+    SCENE = 3,
+    MINIGAME = 4,
+    OTHER = 5
+}
+
+#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ClothingType {
+    HAT = 0,
+    HAIR = 1,
+    JEWELRY = 2,
+    GLASSES = 3,
+    TOP = 4,
+    HANDS = 5,
+    BOTTOM = 6,
+    FEET = 7,
+    OUTFIT = 8
+}
+
 #[derive(Serialize, Deserialize, SimpleObject)]
 pub struct Object {
     pub uuid: String,
@@ -88,7 +143,7 @@ pub struct Object {
     pub description: Option<String>,
     #[serde(skip_deserializing)]
     pub maker: Option<String>,
-    
+
     pub images: Option<Images>,
 
     pub data: Option<Data>,
@@ -98,7 +153,8 @@ pub struct Object {
     pub legal: Option<Legal>,
 
     pub heat: Option<Heat>,
-    pub timestamp: Option<String>
+    pub timestamp: Option<String>,
+    pub metadata: Option<Metadata>
 }
 
 impl Object {
@@ -132,7 +188,7 @@ impl Object {
 
     pub fn complete(&mut self, raw: &RawDocument, locale: Option<Locale>) {
         let iso_code = locale.unwrap_or_default().to_string();
-        
+
         self.name = Object::extract_str(raw, "names", &iso_code)
             .or(Object::extract_str(raw, "names", "default"));
 

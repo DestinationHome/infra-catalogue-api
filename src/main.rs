@@ -6,7 +6,7 @@ use async_graphql::{Schema, EmptyMutation, EmptySubscription, http::{GraphQLPlay
 use async_graphql_actix_web::{GraphQLRequest, GraphQLResponse};
 
 use structs::{
-    api::Database, 
+    api::Database,
     schema::ObjectSchema
 };
 
@@ -36,11 +36,11 @@ lazy_static::lazy_static! {
     };
 }
 
-#[cfg(debug_assertions)]
 async fn index(schema: web::Data<ObjectSchema>, req: GraphQLRequest) -> GraphQLResponse {
     schema.execute(req.into_inner()).await.into()
 }
 
+#[cfg(debug_assertions)]
 async fn graphql_playground() -> HttpResponse {
     HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
@@ -65,8 +65,8 @@ async fn main() -> std::io::Result<()> {
     };
 
     let schema = Schema::build(
-        structs::schema::Query, 
-        EmptyMutation, 
+        structs::schema::Query,
+        EmptyMutation,
         EmptySubscription
     )
     .disable_introspection()
@@ -74,27 +74,29 @@ async fn main() -> std::io::Result<()> {
     .finish();
 
     let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
-    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().expect("PORT must be a number between 0 and 65535");    
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().expect("PORT must be a number between 0 and 65535");
 
     HttpServer::new(move || {
-        let mut cors = Cors::default()
-            .allowed_origin("https://web.destinationhome.live/")
-            .allowed_methods(vec!["GET", "POST", "OPTIONS", "HEAD"])
-            .allowed_header(actix_web::http::header::CONTENT_TYPE)
-            .max_age(3600);
+        // let mut cors = Cors::default()
+        //     .allowed_origin("https://web.destinationhome.live")
+        //     .allowed_methods(vec!["GET", "POST", "OPTIONS", "HEAD"])
+        //     .allow_any_header()
+        //     .disable_vary_header()
+        //     .max_age(3600);
 
-        #[cfg(debug_assertions)]
-        {
-            cors = Cors::default()
+        // #[cfg(debug_assertions)]
+        // {
+            let cors = Cors::default()
                 .allow_any_header()
                 .allow_any_method()
                 .allow_any_origin()
                 .send_wildcard()
                 .max_age(3600);
-        }
+        // }
 
         let mut app = App::new()
             .app_data(web::Data::new(schema.clone()))
+            .service(web::resource("/").guard(guard::Post()).to(index))
             .wrap(cors);
 
         #[cfg(debug_assertions)]
