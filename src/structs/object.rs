@@ -1,7 +1,12 @@
 use async_graphql::{SimpleObject, Enum};
 use bson::RawDocument;
+use fancy_regex::Regex;
 use serde::{Serialize, Deserialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
+
+// example: UP9000-NPUQ00020_00
+const REGEX_PREMIUM_ITEM: &str = r"^[A-Z]{2}\d{4}-[A-Z]{4}\d{5}_\d{2}(?:-\d{6})*$";
+const REGEX_REWARD_ITEM: &str = r"^(?:LUA|AUTOMATIC)_REWARD$";
 
 #[derive(Serialize, Deserialize, SimpleObject)]
 pub struct Version {
@@ -224,11 +229,23 @@ impl Object {
 
         if let Some(entitlements) = &mut self.entitlements {
             if let Some(entitlement_id) = &mut entitlements.entitlement_id {
-                if entitlement_id.iter_mut().any(|e| vec!["LUA_REWARD", "AUTOMATIC_REWARD"].contains(&e.value.as_str())) {
-                    self.r#type = Type::Reward;
-                } else if entitlement_id.iter_mut().any(|e| e.value.len() == 26) {
-                    self.r#type = Type::Premium;
+                let values = entitlement_id.iter().map(|e| e.value.clone());
+
+                let premium_regex = Regex::new(REGEX_PREMIUM_ITEM).unwrap();
+                let reward_regex = Regex::new(REGEX_REWARD_ITEM).unwrap();
+
+                let mut r#type = Type::Other;
+
+                let is_reward = values.clone().any(|v| reward_regex.is_match(&v).unwrap());
+                let is_premium = values.clone().all(|v| premium_regex.is_match(&v).unwrap());
+                
+                if is_reward {
+                    r#type = Type::Reward;
+                } else if is_premium {
+                    r#type = Type::Premium;
                 }
+
+                self.r#type = r#type;
             }
         }
     }
