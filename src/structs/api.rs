@@ -1,17 +1,8 @@
-use mongodb::Client;
-use serde::Deserialize;
-
-use super::object::Object;
+use super::{object::Object, collection::Collection, user::User};
 
 #[derive(Clone)]
 pub struct Database {
-    pub client: Client,
-    pub database: mongodb::Database,
-    pub collection: mongodb::Collection<Object>,
-}
-
-#[derive(Deserialize)]
-pub struct SearchQuery {
-    pub query: String,
-    pub page: Option<u32>,
+    pub objects: mongodb::Collection<Object>,
+    pub collections: mongodb::Collection<Collection>,
+    pub users: mongodb::Collection<User>
 }

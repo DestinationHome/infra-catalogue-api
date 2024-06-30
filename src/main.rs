@@ -1,13 +1,19 @@
 mod structs;
 
+use std::{collections::BTreeMap, sync::Arc};
+
 use actix_cors::Cors;
-use actix_web::{web, App, HttpServer, guard, HttpResponse};
-use async_graphql::{Schema, EmptyMutation, EmptySubscription, http::{GraphQLPlaygroundConfig, playground_source}};
+use actix_web::{guard, http::header::HeaderMap, web, App, HttpRequest, HttpResponse, HttpServer};
+use async_graphql::{Schema, EmptySubscription, http::{GraphQLPlaygroundConfig, playground_source}};
 use async_graphql_actix_web::{GraphQLRequest, GraphQLResponse};
 
+use bson::doc;
+use jwt::VerifyWithKey;
+use hmac::{Hmac, Mac};
+use sha2::Sha512;
 use structs::{
     api::Database,
-    schema::ObjectSchema
+    schema::ObjectSchema, user::User
 };
 
 use crate::structs::object::Object;
@@ -36,8 +42,30 @@ lazy_static::lazy_static! {
     };
 }
 
-async fn index(schema: web::Data<ObjectSchema>, req: GraphQLRequest) -> GraphQLResponse {
-    schema.execute(req.into_inner()).await.into()
+async fn get_user_from_headers(headers: &HeaderMap, database: Arc<Database>) -> Option<User> {
+    let token = headers.get("Authorization")
+        .map(|s| s.to_str().unwrap().to_string())?;
+
+    // Validate token
+    let private_key = std::env::var("JWT_PRIVATE_KEY").expect("JWT_PRIVATE_KEY must be set");
+    let key: Hmac<Sha512> = Hmac::new_from_slice(private_key.as_bytes()).ok()?;
+
+    let claims: BTreeMap<String, String> = token.verify_with_key(&key).ok()?;
+    let subject = claims.get("sub")?;
+
+    // Get user from database
+    database.users.find_one(doc! {"uuid": subject}, None).await.unwrap()
+}
+
+async fn index(schema: web::Data<ObjectSchema>, database: web::Data<Database>, req: HttpRequest, gql_request: GraphQLRequest) -> GraphQLResponse {
+    let mut request = gql_request.into_inner();
+    let database = database.into_inner();
+
+    if let Some(user) = get_user_from_headers(req.headers(), database).await {
+        request = request.data(user);
+    }
+
+    schema.execute(request).await.into()
 }
 
 #[cfg(debug_assertions)]
@@ -56,25 +84,37 @@ async fn main() -> std::io::Result<()> {
     let mongo_uri = std::env::var("MONGO_URI").expect("MONGO_URI must be set");
     let mongo_client = mongodb::Client::with_uri_str(mongo_uri).await.unwrap();
     let mongo_db = mongo_client.default_database().expect("The MongoDB URI must have a database at the end.");
-    let mongo_collection = mongo_db.collection("odc");
 
     let database = Database {
-        client: mongo_client,
-        database: mongo_db,
-        collection: mongo_collection,
+        objects: mongo_db.collection("odc"),
+        collections: mongo_db.collection("odc_collections"),
+        users: mongo_db.collection("odc_users")
     };
 
-    let schema = Schema::build(
+    let mut schema = Schema::build(
         structs::schema::Query,
-        EmptyMutation,
+        structs::schema::Mutation,
         EmptySubscription
     )
-    .disable_introspection()
-    .data(database.clone())
-    .finish();
+    .data(database.clone());
+
+    // Disable introspection in production
+    if !cfg!(debug_assertions) {
+        schema = schema.disable_introspection();
+    }
+
+    let schema = schema.finish();
 
     let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string()).parse::<u16>().expect("PORT must be a number between 0 and 65535");
+
+    // Check if `JWT_PRIVATE_KEY` is set
+    if std::env::var("JWT_PRIVATE_KEY").is_err() {
+        log::error!("JWT_PRIVATE_KEY must be set");
+        std::process::exit(1);
+    }
+
+    // TODO: get CORS working
 
     HttpServer::new(move || {
         // let mut cors = Cors::default()
@@ -96,6 +136,7 @@ async fn main() -> std::io::Result<()> {
 
         let mut app = App::new()
             .app_data(web::Data::new(schema.clone()))
+            .app_data(web::Data::new(database.clone()))
             .service(web::resource("/").guard(guard::Post()).to(index))
             .wrap(cors);
 

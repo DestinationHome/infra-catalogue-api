@@ -1,12 +1,15 @@
 use async_graphql::{SimpleObject, Enum};
-use bson::RawDocument;
+use bson::{doc, RawDocument};
 use fancy_regex::Regex;
 use serde::{Serialize, Deserialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
 
+use super::api::Database;
+
 // example: UP9000-NPUQ00020_00
-const REGEX_PREMIUM_ITEM: &str = r"^[A-Z]{2}\d{4}-[A-Z]{4}\d{5}_\d{2}(?:-\d{6})*$";
+const REGEX_PREMIUM_ITEM: &str = r"^[A-Z]{2}\d{4}-[A-Z]{4}\d{5}_\d{2}(?:-[A-Z0-9]{6})*$";
 const REGEX_REWARD_ITEM: &str = r"^(?:LUA|AUTOMATIC)_REWARD$";
+const REGEX_BUNDLE_ITEM: &str = r"(?i)(?:bundle|pack|set|collection)";
 
 #[derive(Serialize, Deserialize, SimpleObject)]
 pub struct Version {
@@ -94,9 +97,10 @@ pub enum SceneType {
     Clubhouse
 }
 
-#[derive(Serialize, Deserialize, SimpleObject)]
+#[derive(Serialize, Deserialize, SimpleObject, Clone)]
 pub struct Metadata {
     pub r#type: ObjectType,
+    pub bundle: Option<bool>,
 
     // Furniture
     pub furniture_type: Option<FurnitureType>,
@@ -156,14 +160,17 @@ pub struct Object {
     pub uuid: String,
 
     pub version: Version,
-    #[serde(skip_deserializing)]
+    #[serde(skip_deserializing)] // Calculated at query-time
     pub r#type: Type,
 
-    #[serde(skip_deserializing)]
+    #[serde(skip_deserializing)] // Calculated at query-time
+    pub bundle: bool,
+
+    #[serde(skip_deserializing)] // Depends on requested locale
     pub name: Option<String>,
-    #[serde(skip_deserializing)]
+    #[serde(skip_deserializing)] // Depends on requested locale
     pub description: Option<String>,
-    #[serde(skip_deserializing)]
+    #[serde(skip_deserializing)] // Depends on requested locale
     pub maker: Option<String>,
 
     pub images: Option<Images>,
@@ -171,7 +178,7 @@ pub struct Object {
     pub data: Option<Data>,
     pub entitlements: Option<Entitlements>,
 
-    #[serde(skip_deserializing)]
+    #[serde(skip_deserializing)] // Re-formatted at query-time
     pub legal: Option<Legal>,
 
     pub heat: Option<Heat>,
@@ -180,6 +187,34 @@ pub struct Object {
 }
 
 impl Object {
+    pub async fn resolve_many(database: &Database, uuids: &Vec<String>) -> Vec<Object> {
+        let mut cursor = database.objects.find(doc! { "uuid": { "$in": uuids } }, None).await.unwrap();
+        let mut objects = Vec::new();
+
+        while let Ok(res) = cursor.advance().await {
+            if!res { break; } // No more requests
+
+            match cursor.deserialize_current() {
+                Ok(mut o) => {
+                    o.complete(cursor.current(), None);
+                    objects.push(o);
+                },
+                Err(e) => {
+                    let document = cursor.current();
+                    let id = document.get_str("uuid").unwrap();
+
+                    log::error!("Object {} does not conform to the schema: {}", id, e);
+                }
+            }
+        }
+
+        // Retain only unique UUIDs
+        objects.sort_by_key(|u| u.uuid.clone());
+        objects.dedup_by_key(|u| u.uuid.clone());
+
+        objects
+    }
+
     fn extract_str(document: &RawDocument, key: &str, locale: &str) -> Option<String> {
         let mut document = document.get_document(key).ok();
 
@@ -226,6 +261,14 @@ impl Object {
                     .or(Object::extract_obj(raw, "legal.age_rating", "default")),
             });
         }
+
+        // Check if the item might be a bundle, checking the name and description
+        let match_against = vec![
+            self.name.to_owned().unwrap_or_default(),
+            self.description.to_owned().unwrap_or_default()
+        ];
+        let bundle_regex = Regex::new(REGEX_BUNDLE_ITEM).unwrap();
+        self.bundle = match_against.iter().any(|s| bundle_regex.is_match(s).unwrap());
 
         if let Some(entitlements) = &mut self.entitlements {
             if let Some(entitlement_id) = &mut entitlements.entitlement_id {
