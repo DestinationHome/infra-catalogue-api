@@ -1,3 +1,5 @@
+#![feature(stmt_expr_attributes)]
+
 mod structs;
 
 use std::{collections::BTreeMap, sync::Arc};
@@ -18,6 +20,7 @@ use structs::{
 
 use crate::structs::object::Object;
 
+#[cfg(feature="odc-ignore")]
 lazy_static::lazy_static! {
     static ref ODC_IGNORE: Vec<String> = {
         let mut ignore: Vec<String> = vec![];

@@ -1,8 +1,11 @@
-use async_graphql::{SimpleObject, Enum};
-use bson::{doc, RawDocument};
+use std::collections::BTreeMap;
+
+use async_graphql::{ComplexObject, Enum, OutputType, SimpleObject, futures_util::StreamExt};
+use bson::doc;
 use fancy_regex::Regex;
 use serde::{Serialize, Deserialize};
 use serde_repr::{Serialize_repr, Deserialize_repr};
+use lazy_static::lazy_static;
 
 use super::api::Database;
 
@@ -10,6 +13,12 @@ use super::api::Database;
 const REGEX_PREMIUM_ITEM: &str = r"^[A-Z]{2}\d{4}-[A-Z]{4}\d{5}_\d{2}(?:-[A-Z0-9]{6})*$";
 const REGEX_REWARD_ITEM: &str = r"^(?:LUA|AUTOMATIC)_REWARD$";
 const REGEX_BUNDLE_ITEM: &str = r"(?i)(?:bundle|pack|set|collection)";
+
+lazy_static! {
+    static ref BUNDLE_REGEX: Regex = Regex::new(REGEX_BUNDLE_ITEM).unwrap();
+    static ref PREMIUM_REGEX: Regex = Regex::new(REGEX_PREMIUM_ITEM).unwrap();
+    static ref REWARD_REGEX: Regex = Regex::new(REGEX_REWARD_ITEM).unwrap();
+}
 
 #[derive(Serialize, Deserialize, SimpleObject)]
 pub struct Version {
@@ -50,15 +59,15 @@ pub struct EntitlementEntry {
     pub value: String,
 }
 
-#[derive(Serialize, Deserialize, SimpleObject)]
+#[derive(Serialize, Deserialize, SimpleObject, Clone, Debug)]
 pub struct AgeRating {
     pub minimum_age: u32,
     pub parental_control_level: u32,
 }
 
-#[derive(Serialize, Deserialize, SimpleObject)]
+#[derive(Serialize, Deserialize, SimpleObject, Debug)]
 pub struct Legal {
-    pub age_rating: Option<AgeRating>,
+    pub age_rating: Option<LocalizedEntry<AgeRating>>,
 }
 
 #[derive(Serialize, Deserialize, SimpleObject)]
@@ -155,142 +164,168 @@ pub enum FurnitureType {
     TABLE = 11
 }
 
+#[derive(Serialize, Deserialize, SimpleObject, Debug)]
+pub struct LocalizedEntry<T: OutputType + Serialize> {
+    pub default: Option<T>,
+    pub localized: Option<BTreeMap<String, T>> // en-US -> "text"
+}
+
+macro_rules! localized_field {
+    ($self:ident, $field:ident, $locale:ident) => {
+        match $locale {
+            Locale::Default => $self.$field.as_ref().and_then(|f| f.default.clone()),
+            _ => $self.$field.as_ref().and_then(|f| f.localized.as_ref().and_then(|l| l.get(&$locale.to_string()).cloned()))
+        }
+    };
+}
+
 #[derive(Serialize, Deserialize, SimpleObject)]
+#[graphql(complex)] // Needed for `ComplexObject` derive
 pub struct Object {
     pub uuid: String,
-
     pub version: Version,
-    #[serde(skip_deserializing)] // Calculated at query-time
-    pub r#type: Type,
 
-    #[serde(skip_deserializing)] // Calculated at query-time
-    pub bundle: bool,
-
-    #[serde(skip_deserializing)] // Depends on requested locale
-    pub name: Option<String>,
-    #[serde(skip_deserializing)] // Depends on requested locale
-    pub description: Option<String>,
-    #[serde(skip_deserializing)] // Depends on requested locale
-    pub maker: Option<String>,
+    #[graphql(skip)]
+    pub names: Option<LocalizedEntry<String>>,
+    #[graphql(skip)]
+    pub descriptions: Option<LocalizedEntry<String>>,
+    #[graphql(skip)]
+    pub maker: Option<LocalizedEntry<String>>,
 
     pub images: Option<Images>,
 
     pub data: Option<Data>,
     pub entitlements: Option<Entitlements>,
 
-    #[serde(skip_deserializing)] // Re-formatted at query-time
+    #[graphql(skip)]
     pub legal: Option<Legal>,
 
     pub heat: Option<Heat>,
     pub timestamp: Option<String>,
-    pub metadata: Option<Metadata>
+    pub metadata: Option<Metadata>,
+
+    #[graphql(skip)]
+    pub for_locale: String,
+}
+
+#[ComplexObject]
+impl Object {
+    /// Compute a localized name for the object
+    async fn name(&self) -> Option<String> {
+        let locale = Locale::from(self.for_locale.clone());
+        localized_field!(self, names, locale)
+    }
+
+    /// Compute a localized description for the object
+    async fn description(&self) -> Option<String> {
+        let locale = Locale::from(self.for_locale.clone());
+        localized_field!(self, descriptions, locale)
+    }
+
+    /// Compute a localized maker for the object
+    async fn maker(&self) -> Option<String> {
+        let locale = Locale::from(self.for_locale.clone());
+        localized_field!(self, maker, locale)
+    }
+
+    /// Compute a localized age rating for the object
+    async fn legal(&self) -> Option<AgeRating> {
+        let locale = Locale::from(self.for_locale.clone());
+
+        self.legal.as_ref().and_then(|l| {
+            l.age_rating.as_ref().and_then(|a| {
+                match locale {
+                    Locale::Default => a.default.clone(),
+                    _ => a.localized.as_ref().and_then(|l| l.get(&locale.to_string()).cloned())
+                }
+            })
+        })
+    }
+
+    /// Check if the item might be a bundle, checking the name and description
+    async fn bundle(&self) -> bool {
+        let locale = Locale::from(self.for_locale.clone());
+
+        let name = localized_field!(self, names, locale).unwrap_or_default();
+        let description = localized_field!(self, descriptions, locale).unwrap_or_default();
+
+        let match_against = vec![name, description];
+        let bundle = match_against.iter().any(|s| BUNDLE_REGEX.is_match(s).unwrap());
+
+        bundle
+    }
+
+    /// Calculate the type of the object
+    async fn r#type(&self) -> Type {
+        if let Some(entitlements) = &self.entitlements {
+            if let Some(entitlement_id) = &entitlements.entitlement_id {
+                let values = entitlement_id.iter().map(|e| e.value.clone());
+
+                let is_reward = values.clone().any(|v| REWARD_REGEX.is_match(&v).unwrap());
+                if is_reward { return Type::Reward; }
+
+                let is_premium = values.clone().all(|v| PREMIUM_REGEX.is_match(&v).unwrap());
+                if is_premium { return Type::Premium; }
+
+                return Type::Other;
+            }
+        }
+
+        Type::Other
+    }
 }
 
 impl Object {
     pub async fn resolve_many(database: &Database, uuids: &Vec<String>) -> Vec<Object> {
-        let mut cursor = database.objects.find(doc! { "uuid": { "$in": uuids } }, None).await.unwrap();
-        let mut objects = Vec::new();
-
-        while let Ok(res) = cursor.advance().await {
-            if!res { break; } // No more requests
-
-            match cursor.deserialize_current() {
-                Ok(mut o) => {
-                    o.complete(cursor.current(), None);
-                    objects.push(o);
-                },
-                Err(e) => {
-                    let document = cursor.current();
-                    let id = document.get_str("uuid").unwrap();
-
-                    log::error!("Object {} does not conform to the schema: {}", id, e);
+        let locale: Option<Locale> = None;
+        let aggregation = vec![
+            doc! { // Match the query
+                "$match": doc! {
+                    "uuid": doc! {
+                        "$in": uuids
+                    }
+                }
+            },
+            doc! { // Group by UUID
+                "$group": doc! {
+                    "_id": "$uuid",
+                    "firstDocument": doc! { // Keep the first document
+                        "$first": "$$ROOT"
+                    }
+                }
+            },
+            doc! { // Replace the root with the first document
+                "$replaceRoot": doc! {
+                    "newRoot": "$firstDocument"
+                }
+            },
+            doc! { // Add `for_locale` field for internal reference
+                "$addFields": doc! {
+                    "for_locale": locale.unwrap_or_default().to_string()
+                }
+            },
+            doc! { // Sort the results by the `uuid` field
+                "$sort": doc! {
+                    "uuid": 1
                 }
             }
-        }
-
-        // Retain only unique UUIDs
-        objects.sort_by_key(|u| u.uuid.clone());
-        objects.dedup_by_key(|u| u.uuid.clone());
-
-        objects
-    }
-
-    fn extract_str(document: &RawDocument, key: &str, locale: &str) -> Option<String> {
-        let mut document = document.get_document(key).ok();
-
-        if locale != "default" {
-            document = document.and_then(|doc| doc.get_document("localized").ok());
-        }
-
-        document.and_then(|doc| doc.get_str(locale).ok()).map(|s| s.to_string())
-    }
-
-    fn extract_obj<'a, T: for<'de> Deserialize<'de>>(document: &'a RawDocument, key: &str, locale: &str) -> Option<T> {
-        let parts = key.split('.');
-
-        let mut document: Option<&RawDocument> = Some(document);
-        for part in parts {
-            document = document.and_then(|doc| doc.get_document(part).ok());
-        }
-
-        if locale != "default" {
-            document = document.and_then(|doc| doc.get_document("localized").ok());
-        }
-
-        document = document.and_then(|doc| doc.get_document(locale).ok());
-
-        let parsed = document.and_then(|doc| bson::to_bson(&doc).ok()).unwrap_or_default();
-        bson::from_bson::<T>(parsed).ok()
-    }
-
-    pub fn complete(&mut self, raw: &RawDocument, locale: Option<Locale>) {
-        let iso_code = locale.unwrap_or_default().to_string();
-
-        self.name = Object::extract_str(raw, "names", &iso_code)
-            .or(Object::extract_str(raw, "names", "default"));
-
-        self.description = Object::extract_str(raw, "descriptions", &iso_code)
-            .or(Object::extract_str(raw, "descriptions", "default"));
-
-        self.maker = Object::extract_str(raw, "maker", &iso_code)
-            .or(Object::extract_str(raw, "maker", "default"));
-
-        if raw.get_document("legal").is_ok() {
-            self.legal = Some(Legal {
-                age_rating: Object::extract_obj(raw, "legal.age_rating", &iso_code)
-                    .or(Object::extract_obj(raw, "legal.age_rating", "default")),
-            });
-        }
-
-        // Check if the item might be a bundle, checking the name and description
-        let match_against = vec![
-            self.name.to_owned().unwrap_or_default(),
-            self.description.to_owned().unwrap_or_default()
         ];
-        let bundle_regex = Regex::new(REGEX_BUNDLE_ITEM).unwrap();
-        self.bundle = match_against.iter().any(|s| bundle_regex.is_match(s).unwrap());
 
-        if let Some(entitlements) = &mut self.entitlements {
-            if let Some(entitlement_id) = &mut entitlements.entitlement_id {
-                let values = entitlement_id.iter().map(|e| e.value.clone());
-
-                let premium_regex = Regex::new(REGEX_PREMIUM_ITEM).unwrap();
-                let reward_regex = Regex::new(REGEX_REWARD_ITEM).unwrap();
-
-                let mut r#type = Type::Other;
-
-                let is_reward = values.clone().any(|v| reward_regex.is_match(&v).unwrap());
-                let is_premium = values.clone().all(|v| premium_regex.is_match(&v).unwrap());
-                
-                if is_reward {
-                    r#type = Type::Reward;
-                } else if is_premium {
-                    r#type = Type::Premium;
-                }
-
-                self.r#type = r#type;
-            }
+        #[cfg(feature="odc-ignore")]
+        // Add a filter for ignored objects to the match stage
+        if let Some(ref query) = query {
+            let doc = aggregation.first_mut().unwrap().as_document_mut().unwrap();
+            doc.get_document_mut("$match").unwrap().insert("uuid", doc! { "$nin": ODC_IGNORE });
         }
+
+        // Aggregate the results into unprocessed objects
+        let results: Vec<Object> = database.objects
+            .aggregate(aggregation, None).await.unwrap()
+            .with_type::<Object>()
+            .filter_map(|r| async { r.ok() })
+            .collect::<Vec<Object>>().await;
+
+        results
     }
 }
 
@@ -321,6 +356,28 @@ impl Default for Locale {
     }
 }
 
+impl From<String> for Locale {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "en-GB" => Locale::BritishEnglish,
+            "en-US" => Locale::AmericanEnglish,
+            "en-SG" => Locale::SingaporeEnglish,
+
+            "it-IT" => Locale::Italian,
+            "de-DE" => Locale::German,
+            "es-ES" => Locale::Spanish,
+            "fr-FR" => Locale::French,
+
+            "ja-JP" => Locale::Japanese,
+            "ko-KR" => Locale::Korean,
+            "zh-HK" => Locale::HongKongChinese,
+            "zh-TW" => Locale::TaiwaneseChinese,
+
+            _ => Locale::Default
+        }
+    }
+}
+
 impl ToString for Locale {
     fn to_string(&self) -> String {
         match self {
@@ -340,5 +397,21 @@ impl ToString for Locale {
 
             Locale::Default => "default",
         }.to_string()
+    }
+}
+
+impl Locale {
+    pub fn path(&self) -> String {
+        match self {
+            Locale::Default => "default".to_string(),
+            _ => format!("localized.{}", self.to_string())
+        }
+    }
+
+    pub fn iso_code(&self) -> String {
+        match self {
+            Locale::Default => "default".to_string(),
+            _ => self.to_string().split("-").last().unwrap().to_string()
+        }
     }
 }

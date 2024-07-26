@@ -1,14 +1,16 @@
 use std::collections::BTreeMap;
 
-use async_graphql::{Context, EmptySubscription, Error, Object as GraphQLObject, Result as GraphQLResult, Schema};
+use async_graphql::{Context, EmptySubscription, Error, Object as GraphQLObject, Result as GraphQLResult, Schema, futures_util::StreamExt};
 use bson::doc;
 use hmac::{digest::KeyInit, Hmac};
 use jwt::{Header, AlgorithmType, Token, SignWithKey};
-use mongodb::options::FindOptions;
 use sha2::Sha512;
 
 use super::{api::Database, collection::{Collection, COLLECTION_SIZE}, object::Locale, user::User};
-use crate::{Object, ODC_IGNORE};
+use crate::Object;
+
+#[cfg(feature = "odc-ignore")]
+use crate::ODC_IGNORE;
 
 pub struct Query;
 pub struct Mutation;
@@ -22,50 +24,64 @@ impl Query {
     ) -> GraphQLResult<Vec<Object>> {
         let database = ctx.data::<Database>().unwrap();
 
-        let options = FindOptions::builder()
-            .sort(doc! { "uuid": 1 }) // For predictable ordering
-            .build();
+        // let query_doc = match query {
+        //     Some(ref query) => Some(doc! { "$text": { "$search": query } }),
+        //     None => None,
+        // };
+        // let mut cursor = database.objects.find(query_doc, options).await.unwrap();
 
-        let query_doc = match query {
-            Some(ref query) => Some(doc! { "$text": { "$search": query } }),
-            None => None,
-        };
-        let mut cursor = database.objects.find(query_doc, options).await.unwrap();
-        let mut results: Vec<Object> = vec![];
-
-        while let Ok(res) = cursor.advance().await {
-            if !res { break; } // No more requests
-
-            match cursor.deserialize_current() {
-                Ok(mut object) => {
-                    if ODC_IGNORE.contains(&object.uuid) { 
-                        log::info!("Object {} is set to be ignored (query: `{:?}`)", object.uuid, query);
-                        continue;
+        let aggregation = vec![
+            doc! { // Match the query
+                "$match": doc! {
+                    "$text": doc! {
+                        "$search": query.unwrap_or_default()
                     }
-
-                    // Translate the object to the requested locale
-                    let document = cursor.current();
-                    object.complete(document, locale);
-
-                    results.push(object);
-                },
-                Err(e) => {
-                    let document = cursor.current();
-                    let id = document.get_str("uuid").unwrap();
-
-                    log::error!("Object {} does not conform to the schema: {}", id, e);
+                }
+            },
+            doc! { // Group by UUID
+                "$group": doc! {
+                    "_id": "$uuid",
+                    "firstDocument": doc! { // Keep the first document
+                        "$first": "$$ROOT"
+                    }
+                }
+            },
+            doc! { // Replace the root with the first document
+                "$replaceRoot": doc! {
+                    "newRoot": "$firstDocument"
+                }
+            },
+            doc! { // Skip the first `skip` results
+                "$skip": skip.unwrap_or(0)
+            },
+            doc! { // Limit the number of results
+                "$limit": limit.unwrap_or(u32::MAX) as i64
+            },
+            doc! { // Add `for_locale` field for internal reference
+                "$addFields": doc! {
+                    "for_locale": locale.unwrap_or_default().to_string()
+                }
+            },
+            doc! { // Sort the results by the `uuid` field
+                "$sort": doc! {
+                    "uuid": 1
                 }
             }
+        ];
+
+        #[cfg(feature="odc-ignore")]
+        // Add a filter for ignored objects to the match stage
+        if let Some(ref query) = query {
+            let doc = aggregation.first_mut().unwrap().as_document_mut().unwrap();
+            doc.get_document_mut("$match").unwrap().insert("uuid", doc! { "$nin": ODC_IGNORE });
         }
 
-        // Remove duplicates from results
-        results.dedup_by_key(|o| o.uuid.clone());
-
-        // Start after `skip` results
-        results.drain(..skip.unwrap_or(0) as usize);
-
-        // Limit the number of results
-        results.truncate(limit.unwrap_or(u32::MAX) as usize);
+        // Aggregate the results into unprocessed objects
+        let results: Vec<Object> = database.objects
+            .aggregate(aggregation, None).await.unwrap()
+            .with_type::<Object>()
+            .filter_map(|r| async { r.ok() })
+            .collect::<Vec<Object>>().await;
 
         Ok(results)
     }
@@ -82,70 +98,33 @@ impl Query {
             .clamp(0, 50);
 
         let pipeline = vec![
-            doc! { "$sample": { "size": amount } }
+            doc! { "$sample": { "size": amount } },
+            doc! { "$addFields": { "for_locale": locale.unwrap_or_default().to_string() } }
         ];
-        let mut cursor = database.objects.aggregate(pipeline, None).await.unwrap().with_type::<Object>();
-        let mut results: Vec<Object> = vec![];
-
-        while let Ok(res) = cursor.advance().await {
-            if !res { break; } // No more requests
-
-            match cursor.deserialize_current() {
-                Ok(mut object) => {
-                    if ODC_IGNORE.contains(&object.uuid) { 
-                        log::info!("Object {} is set to be ignored (random lookup)", object.uuid);
-                        continue;
-                    }
-
-                    // Translate the object to the requested locale
-                    let document = cursor.current();
-                    object.complete(document, locale);
-
-                    results.push(object);
-                },
-                Err(e) => {
-                    let document = cursor.current();
-                    let id = document.get_str("uuid").unwrap();
-
-                    log::error!("Object {} does not conform to the schema: {}", id, e);
-                }
-            }
-        }
-
-        // Remove duplicates from results
-        results.dedup_by_key(|o| o.uuid.clone());
+        
+        let results: Vec<Object> = database.objects
+            .aggregate(pipeline, None).await.unwrap()
+            .with_type::<Object>()
+            .filter_map(|r| async { r.ok() })
+            .collect::<Vec<Object>>().await;
 
         Ok(results)
     }
 
     async fn object(&self, ctx: &Context<'_>, uuid: String, locale: Option<Locale>) -> GraphQLResult<Object> {
+
+        #[cfg(feature="odc-ignore")]
         if ODC_IGNORE.contains(&uuid) { return Err("Object not found".into()); }
 
         let database = ctx.data::<Database>().unwrap();
-        let mut cursor = database.objects.find(doc! {
+        let result = database.objects.find_one(doc! {
             "uuid": &uuid
         }, None).await.unwrap();
 
-        while let Ok(res) = cursor.advance().await {
-            if !res { break; }
-
-            match cursor.deserialize_current() {
-                Ok(mut object) => {
-                    let document = cursor.current();
-                    object.complete(document, locale);
-
-                    return Ok(object);
-                },
-                Err(e) => {
-                    let document = cursor.current();
-                    let id = document.get_str("uuid").unwrap();
-
-                    log::error!("Object {} does not conform to the schema: {}", id, e);
-                }
-            }
-        }
-
-        Err("Object not found".into())
+        result
+            // Required for localisation
+            .map(|mut r| { r.for_locale = locale.unwrap_or_default().to_string(); r })
+            .ok_or("Object not found".into())
     }
 
     async fn collections(&self, ctx: &Context<'_>) -> GraphQLResult<Vec<Collection>> {
