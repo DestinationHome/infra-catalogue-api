@@ -130,24 +130,10 @@ impl Query {
     async fn collections(&self, ctx: &Context<'_>) -> GraphQLResult<Vec<Collection>> {
         let database = ctx.data::<Database>().unwrap();
 
-        let mut cursor = database.collections.find(doc! {}, None).await.unwrap();
-        let mut results: Vec<Collection> = vec![];
-
-        while let Ok(res) = cursor.advance().await {
-            if!res { break; } // No more requests
-
-            match cursor.deserialize_current() {
-                Ok(collection) => {
-                    results.push(collection);
-                },
-                Err(e) => {
-                    let document = cursor.current();
-                    let id = document.get_str("uuid").unwrap();
-
-                    log::error!("Collection {} does not conform to the schema: {}", id, e);
-                }
-            }
-        }
+        let results: Vec<Collection> = database.collections.find(doc! {}, None).await.unwrap()
+            .with_type::<Collection>()
+            .filter_map(|r| async { r.ok() })
+            .collect::<Vec<Collection>>().await;
     
         Ok(results)
     }
