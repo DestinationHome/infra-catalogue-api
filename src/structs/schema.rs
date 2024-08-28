@@ -137,6 +137,15 @@ impl Query {
     
         Ok(results)
     }
+
+    async fn collection(&self, ctx: &Context<'_>, uuid: String) -> GraphQLResult<Collection> {
+        let database = ctx.data::<Database>().unwrap();
+        let result = database.collections.find_one(doc! {
+            "uuid": &uuid
+        }, None).await.unwrap();
+
+        result.ok_or("Collection not found".into())
+    }
 }
 
 #[GraphQLObject]

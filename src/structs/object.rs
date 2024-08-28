@@ -205,6 +205,7 @@ pub struct Object {
     pub metadata: Option<Metadata>,
 
     #[graphql(skip)]
+    #[serde(skip_deserializing)]
     pub for_locale: String,
 }
 
