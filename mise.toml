@@ -1,6 +1,13 @@
 [tools]
 rust = "stable"
 docker-compose = "latest"
+trufflehog = "latest"
+
+# Trufflehog
+
+[tasks.scan]
+description = "Scan for secrets with Trufflehog"
+run = "trufflehog git file://."
 
 # Rust
 
