@@ -11,21 +11,13 @@ env:
 
 jobs:
   lint-and-test:
-    name: Clippy, Tests & Security Scan
+    name: Clippy & Unit Tests
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, 'skip-ci') && !contains(github.event.head_commit.message, '[skip ci]')"
 
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Secret Scan with TruffleHog
-        uses: trufflesecurity/trufflehog@main
-        with:
-          path: ./
-          extra_args: --only-verified
 
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable

@@ -75,9 +75,10 @@ async fn index(
     drop(req);
 
     if let Some(token_str) = token
-        && let Some(user) = get_user_from_token(&token_str, &database).await {
-            request = request.data(user);
-        }
+        && let Some(user) = get_user_from_token(&token_str, &database).await
+    {
+        request = request.data(user);
+    }
 
     schema.execute(request).await.into()
 }

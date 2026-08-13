@@ -338,8 +338,6 @@ impl Object {
         let name = localized_field!(self, names, locale).unwrap_or_default();
         let description = localized_field!(self, descriptions, locale).unwrap_or_default();
 
-        
-
         [name, description]
             .iter()
             .any(|s| BUNDLE_REGEX.is_match(s).unwrap())
@@ -348,21 +346,22 @@ impl Object {
     /// Calculate the type of the object
     async fn r#type(&self) -> Type {
         if let Some(entitlements) = &self.entitlements
-            && let Some(entitlement_id) = &entitlements.entitlement_id {
-                let values = entitlement_id.iter().map(|e| e.value.clone());
+            && let Some(entitlement_id) = &entitlements.entitlement_id
+        {
+            let values = entitlement_id.iter().map(|e| e.value.clone());
 
-                let is_reward = values.clone().any(|v| REWARD_REGEX.is_match(&v).unwrap());
-                if is_reward {
-                    return Type::Reward;
-                }
-
-                let is_premium = values.clone().all(|v| PREMIUM_REGEX.is_match(&v).unwrap());
-                if is_premium {
-                    return Type::Premium;
-                }
-
-                return Type::Other;
+            let is_reward = values.clone().any(|v| REWARD_REGEX.is_match(&v).unwrap());
+            if is_reward {
+                return Type::Reward;
             }
+
+            let is_premium = values.clone().all(|v| PREMIUM_REGEX.is_match(&v).unwrap());
+            if is_premium {
+                return Type::Premium;
+            }
+
+            return Type::Other;
+        }
 
         Type::Other
     }
