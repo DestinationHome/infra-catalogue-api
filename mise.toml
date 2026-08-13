@@ -1,0 +1,37 @@
+[tools]
+rust = "stable"
+docker-compose = "latest"
+
+# Rust
+
+[tasks.ci]
+description = "Prepare for CI pipeline (format check, clippy, tests)"
+depends = ["fmt:check", "lint", "test"]
+
+[tasks.lint]
+description = "Lint the Rust binary with Clippy"
+run = "cargo clippy --bins --release -- -D warnings -D clippy::nursery"
+
+[tasks.fmt]
+description = "Auto-format Rust source code"
+run = "cargo fmt --all"
+
+# Docker
+
+[tasks."docker:build"]
+description = "Build the multi-arch static scratch container"
+run = "docker build -t ghcr.io/destinationhome/infra-catalogue-api:latest ."
+
+# Meilisearch
+
+[tasks."meili:stats"]
+description = "Inspect live Meilisearch document count and index health"
+run = "curl -s http://localhost:7700/indexes/odc/stats"
+
+[tasks."meili:tasks"]
+description = "Inspect recent Meilisearch background indexing tasks"
+run = "curl -s http://localhost:7700/tasks?limit=5"
+
+[tasks."meili:reindex"]
+description = "Wipe Meilisearch index to trigger a fresh full sync from MongoDB on next boot"
+run = "curl -s -X DELETE http://localhost:7700/indexes/odc"

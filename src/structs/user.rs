@@ -1,6 +1,6 @@
 use async_graphql::SimpleObject;
 use bson::doc;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use super::api::Database;
 
@@ -16,6 +16,10 @@ pub struct User {
 
 impl User {
     pub async fn resolve(database: &Database, uuid: &str) -> Option<Self> {
-        database.users.find_one(doc! { "uuid": uuid }, None).await.unwrap()
+        database
+            .users
+            .find_one(doc! { "uuid": uuid }, None)
+            .await
+            .unwrap()
     }
 }

@@ -1,0 +1,49 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file: .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8080
+      - RUST_LOG=info
+      - MEILI_URL=http://meilisearch:7700
+    depends_on:
+      - mongodb
+      - meilisearch
+    networks:
+      - default
+      - internal_net
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:8.3.8
+    container_name: catalogue-mongodb
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - internal_net
+    restart: unless-stopped
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.53.1
+    container_name: catalogue-meilisearch
+    environment:
+      - MEILI_NO_ANALYTICS=true
+    volumes:
+      - meilisearch_data:/meili_data
+    networks:
+      - internal_net
+    restart: unless-stopped
+
+networks:
+  default:
+  internal_net:
+    internal: true
+
+volumes:
+  mongodb_data:
+  meilisearch_data:

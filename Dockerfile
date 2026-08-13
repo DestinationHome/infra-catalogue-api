@@ -1,9 +1,9 @@
-# Using the `rust-musl-builder` as base image, instead of 
-# the official Rust toolchain
-FROM clux/muslrust:stable AS chef
-USER root
-RUN cargo install cargo-chef
+# Syntax=docker/dockerfile:1
+
+# Multi-arch base builder with pre-installed cargo-chef
+FROM lukemathwalker/cargo-chef:latest-rust-1-alpine AS chef
 WORKDIR /app
+RUN apk add --no-cache ca-certificates musl-dev
 
 FROM chef AS planner
 COPY . .
@@ -11,13 +11,21 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
-# Notice that we are specifying the --target flag!
-RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json
-COPY . .
-RUN cargo build --release --target x86_64-unknown-linux-musl --bin catalogue
+# Build & cache dependencies for native host architecture (x86_64 / aarch64)
+RUN cargo chef cook --release --recipe-path recipe.json
 
-FROM alpine AS runtime
-RUN addgroup -S myuser && adduser -S myuser -G myuser
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/catalogue /catalogue
-USER myuser
-CMD ["/catalogue"]
+# Copy source code and build native release binary statically linked against musl
+COPY . .
+RUN cargo build --release --bin catalogue
+
+# Final minimal stage: scratch (0 bytes overhead, zero OS attack surface)
+FROM scratch AS runtime
+
+# Copy SSL CA root certificates for HTTPS/TLS client calls (reqwest, Meilisearch, MongoDB)
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+# Copy statically linked catalogue binary
+COPY --from=builder /app/target/release/catalogue /catalogue
+
+EXPOSE 8080
+ENTRYPOINT ["/catalogue"]

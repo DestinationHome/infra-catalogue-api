@@ -1,9 +1,9 @@
 use std::ops::RangeInclusive;
 
-use async_graphql::{ComplexObject, Context, SimpleObject, Result as GraphQLResult};
+use async_graphql::{ComplexObject, Context, Result as GraphQLResult, SimpleObject};
 use bson::doc;
 use chrono::{DateTime, Utc};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use super::{api::Database, object::Object, user::User};
 
@@ -34,18 +34,21 @@ pub struct Collection {
 
 #[ComplexObject]
 impl Collection {
-    pub async fn created_at(&self) -> String { self.created_at.to_rfc3339() }
-    pub async fn updated_at(&self) -> String { self.updated_at.to_rfc3339() }
+    pub async fn created_at(&self) -> String {
+        self.created_at.to_rfc3339()
+    }
+    pub async fn updated_at(&self) -> String {
+        self.updated_at.to_rfc3339()
+    }
 
     pub async fn author(&self, ctx: &Context<'_>) -> GraphQLResult<User> {
         let database = ctx.data::<Database>().unwrap();
-        match User::resolve(database, &self.author).await {
-            Some(user) => Ok(user),
-            None => Err("Author not found".into()),
-        }
+        User::resolve(database, &self.author)
+            .await
+            .map_or_else(|| Err("Author not found".into()), Ok)
     }
 
-    pub async fn objects(&self, ctx: &Context<'_>,) -> Vec<Object> {
+    pub async fn objects(&self, ctx: &Context<'_>) -> Vec<Object> {
         let database = ctx.data::<Database>().unwrap();
         Object::resolve_many(database, &self.objects).await
     }

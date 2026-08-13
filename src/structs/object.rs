@@ -1,11 +1,16 @@
-use std::collections::BTreeMap;
+#![allow(
+    clippy::trait_duplication_in_bounds,
+    reason = "GraphQL's SimpleObject proc-macro is doing heavy codegen and Clippy cannot tell"
+)]
 
-use async_graphql::{ComplexObject, Enum, OutputType, SimpleObject, futures_util::StreamExt};
+use std::{collections::BTreeMap, fmt::Display};
+
+use async_graphql::{futures_util::StreamExt, ComplexObject, Enum, OutputType, SimpleObject};
 use bson::doc;
 use fancy_regex::Regex;
-use serde::{Serialize, Deserialize};
-use serde_repr::{Serialize_repr, Deserialize_repr};
 use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
+use serde_repr::{Deserialize_repr, Serialize_repr};
 
 use super::api::Database;
 
@@ -43,10 +48,11 @@ pub struct Element {
 #[derive(Serialize, Deserialize, SimpleObject)]
 pub struct Data {
     pub component: String,
-    pub elements: Vec<Element>
+    pub elements: Vec<Element>,
 }
 
 #[derive(Serialize, Deserialize, SimpleObject)]
+#[graphql(rename_fields = "snake_case")]
 pub struct Entitlements {
     pub entitlement_id: Option<Vec<EntitlementEntry>>,
     pub category_id: Option<Vec<EntitlementEntry>>,
@@ -60,12 +66,14 @@ pub struct EntitlementEntry {
 }
 
 #[derive(Serialize, Deserialize, SimpleObject, Clone, Debug)]
+#[graphql(rename_fields = "snake_case")]
 pub struct AgeRating {
     pub minimum_age: u32,
     pub parental_control_level: u32,
 }
 
 #[derive(Serialize, Deserialize, SimpleObject, Debug)]
+#[graphql(rename_fields = "snake_case")]
 pub struct Legal {
     pub age_rating: Option<LocalizedEntry<AgeRating>>,
 }
@@ -79,34 +87,52 @@ pub struct Heat {
     pub net: Option<u32>,
 }
 
-#[derive(Serialize, Deserialize, Enum, Clone, Copy, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Enum, Clone, Copy, Eq, PartialEq, Default)]
 pub enum Type {
     Reward,
     Premium,
+    #[default]
     Other,
 }
 
-impl Default for Type {
-    fn default() -> Self {
-        Type::Other
+#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq, Debug)]
+#[repr(u8)]
+pub enum Gender {
+    Male = 0,
+    Female = 1,
+}
+
+impl TryFrom<u8> for Gender {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Male),
+            1 => Ok(Self::Female),
+            _ => Err(()),
+        }
     }
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq)]
-#[repr(u8)]
-pub enum Gender {
-    Male,
-    Female
-}
-
-#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq)]
+#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq, Debug)]
 #[repr(u8)]
 pub enum SceneType {
-    Apartment,
-    Clubhouse
+    Apartment = 0,
+    Clubhouse = 1,
 }
 
-#[derive(Serialize, Deserialize, SimpleObject, Clone)]
+impl TryFrom<u8> for SceneType {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Apartment),
+            1 => Ok(Self::Clubhouse),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, SimpleObject, Clone, Debug)]
+#[graphql(rename_fields = "snake_case")]
 pub struct Metadata {
     pub r#type: ObjectType,
     pub bundle: Option<bool>,
@@ -122,59 +148,120 @@ pub struct Metadata {
     pub scene_type: Option<SceneType>,
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq)]
+#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq, Debug)]
 #[repr(u8)]
+#[graphql(rename_items = "SCREAMING_SNAKE_CASE")]
 pub enum ObjectType {
-    CLOTHING = 0,
-    FURNITURE = 1,
-    PORTABLE = 2,
-    SCENE = 3,
-    MINIGAME = 4,
-    OTHER = 5
+    Clothing = 0,
+    Furniture = 1,
+    Portable = 2,
+    Scene = 3,
+    Minigame = 4,
+    Other = 5,
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq)]
+impl TryFrom<u8> for ObjectType {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Clothing),
+            1 => Ok(Self::Furniture),
+            2 => Ok(Self::Portable),
+            3 => Ok(Self::Scene),
+            4 => Ok(Self::Minigame),
+            5 => Ok(Self::Other),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq, Debug)]
 #[repr(u8)]
+#[graphql(rename_items = "SCREAMING_SNAKE_CASE")]
 pub enum ClothingType {
-    HAT = 0,
-    HAIR = 1,
-    JEWELRY = 2,
-    GLASSES = 3,
-    TORSO = 4,
-    HANDS = 5,
-    LEGS = 6,
-    FEET = 7,
-    OUTFIT = 8
+    Hat = 0,
+    Hair = 1,
+    Jewelry = 2,
+    Glasses = 3,
+    Torso = 4,
+    Hands = 5,
+    Legs = 6,
+    Feet = 7,
+    Outfit = 8,
 }
 
-#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq)]
+impl TryFrom<u8> for ClothingType {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Hat),
+            1 => Ok(Self::Hair),
+            2 => Ok(Self::Jewelry),
+            3 => Ok(Self::Glasses),
+            4 => Ok(Self::Torso),
+            5 => Ok(Self::Hands),
+            6 => Ok(Self::Legs),
+            7 => Ok(Self::Feet),
+            8 => Ok(Self::Outfit),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq, Debug)]
 #[repr(u8)]
+#[graphql(rename_items = "SCREAMING_SNAKE_CASE")]
 pub enum FurnitureType {
-    APPLIANCE = 0,
-    CHAIR = 1,
-    CUBE = 2,
-    FLOORING = 3,
-    FOOTSTOOL = 4,
-    FRAME = 5,
-    LIGHT = 6,
-    ORNAMENT = 7,
-    PICTURE = 8,
-    SOFA = 9,
-    STORAGE = 10,
-    TABLE = 11
+    Appliance = 0,
+    Chair = 1,
+    Cube = 2,
+    Flooring = 3,
+    Footstool = 4,
+    Frame = 5,
+    Light = 6,
+    Ornament = 7,
+    Picture = 8,
+    Sofa = 9,
+    Storage = 10,
+    Table = 11,
+}
+
+impl TryFrom<u8> for FurnitureType {
+    type Error = ();
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Appliance),
+            1 => Ok(Self::Chair),
+            2 => Ok(Self::Cube),
+            3 => Ok(Self::Flooring),
+            4 => Ok(Self::Footstool),
+            5 => Ok(Self::Frame),
+            6 => Ok(Self::Light),
+            7 => Ok(Self::Ornament),
+            8 => Ok(Self::Picture),
+            9 => Ok(Self::Sofa),
+            10 => Ok(Self::Storage),
+            11 => Ok(Self::Table),
+            _ => Err(()),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, SimpleObject, Debug)]
 pub struct LocalizedEntry<T: OutputType + Serialize> {
     pub default: Option<T>,
-    pub localized: Option<BTreeMap<String, T>> // en-US -> "text"
+    pub localized: Option<BTreeMap<String, T>>, // en-US -> "text"
 }
 
 macro_rules! localized_field {
     ($self:ident, $field:ident, $locale:ident) => {
         match $locale {
             Locale::Default => $self.$field.as_ref().and_then(|f| f.default.clone()),
-            _ => $self.$field.as_ref().and_then(|f| f.localized.as_ref().and_then(|l| l.get(&$locale.to_string()).cloned()))
+            _ => $self.$field.as_ref().and_then(|f| {
+                f.localized
+                    .as_ref()
+                    .and_then(|l| l.get(&$locale.to_string()).cloned())
+            }),
         }
     };
 }
@@ -234,11 +321,12 @@ impl Object {
         let locale = Locale::from(self.for_locale.clone());
 
         self.legal.as_ref().and_then(|l| {
-            l.age_rating.as_ref().and_then(|a| {
-                match locale {
-                    Locale::Default => a.default.clone(),
-                    _ => a.localized.as_ref().and_then(|l| l.get(&locale.to_string()).cloned())
-                }
+            l.age_rating.as_ref().and_then(|a| match locale {
+                Locale::Default => a.default.clone(),
+                _ => a
+                    .localized
+                    .as_ref()
+                    .and_then(|l| l.get(&locale.to_string()).cloned()),
             })
         })
     }
@@ -250,8 +338,9 @@ impl Object {
         let name = localized_field!(self, names, locale).unwrap_or_default();
         let description = localized_field!(self, descriptions, locale).unwrap_or_default();
 
-        let match_against = vec![name, description];
-        let bundle = match_against.iter().any(|s| BUNDLE_REGEX.is_match(s).unwrap());
+        let bundle = [name, description]
+            .iter()
+            .any(|s| BUNDLE_REGEX.is_match(s).unwrap());
 
         bundle
     }
@@ -263,10 +352,14 @@ impl Object {
                 let values = entitlement_id.iter().map(|e| e.value.clone());
 
                 let is_reward = values.clone().any(|v| REWARD_REGEX.is_match(&v).unwrap());
-                if is_reward { return Type::Reward; }
+                if is_reward {
+                    return Type::Reward;
+                }
 
                 let is_premium = values.clone().all(|v| PREMIUM_REGEX.is_match(&v).unwrap());
-                if is_premium { return Type::Premium; }
+                if is_premium {
+                    return Type::Premium;
+                }
 
                 return Type::Other;
             }
@@ -277,8 +370,7 @@ impl Object {
 }
 
 impl Object {
-    pub async fn resolve_many(database: &Database, uuids: &Vec<String>) -> Vec<Object> {
-        let locale: Option<Locale> = None;
+    pub async fn resolve_many(database: &Database, uuids: &Vec<String>) -> Vec<Self> {
         let aggregation = vec![
             doc! { // Match the query
                 "$match": doc! {
@@ -302,37 +394,42 @@ impl Object {
             },
             doc! { // Add `for_locale` field for internal reference
                 "$addFields": doc! {
-                    "for_locale": locale.unwrap_or_default().to_string()
+                    "for_locale": Locale::Default.to_string()
                 }
             },
             doc! { // Sort the results by the `uuid` field
                 "$sort": doc! {
                     "uuid": 1
                 }
-            }
+            },
         ];
 
-        #[cfg(feature="odc-ignore")]
+        #[cfg(feature = "odc-ignore")]
         // Add a filter for ignored objects to the match stage
         if let Some(ref query) = query {
             let doc = aggregation.first_mut().unwrap().as_document_mut().unwrap();
-            doc.get_document_mut("$match").unwrap().insert("uuid", doc! { "$nin": ODC_IGNORE });
+            doc.get_document_mut("$match")
+                .unwrap()
+                .insert("uuid", doc! { "$nin": ODC_IGNORE });
         }
 
         // Aggregate the results into unprocessed objects
-        let results: Vec<Object> = database.objects
-            .aggregate(aggregation, None).await.unwrap()
-            .with_type::<Object>()
+        let results: Vec<Self> = database
+            .objects
+            .aggregate(aggregation, None)
+            .await
+            .unwrap()
+            .with_type::<Self>()
             .filter_map(|r| async { r.ok() })
-            .collect::<Vec<Object>>().await;
+            .collect::<Vec<Self>>()
+            .await;
 
         results
     }
 }
 
-
 /// One of the films in the Star Wars Trilogy
-#[derive(Enum, Copy, Clone, Eq, PartialEq)]
+#[derive(Enum, Copy, Clone, Eq, PartialEq, Default)]
 pub enum Locale {
     BritishEnglish,
     AmericanEnglish,
@@ -348,71 +445,66 @@ pub enum Locale {
     HongKongChinese,
     TaiwaneseChinese,
 
+    #[default]
     Default,
-}
-
-impl Default for Locale {
-    fn default() -> Self {
-        Locale::Default
-    }
 }
 
 impl From<String> for Locale {
     fn from(s: String) -> Self {
         match s.as_str() {
-            "en-GB" => Locale::BritishEnglish,
-            "en-US" => Locale::AmericanEnglish,
-            "en-SG" => Locale::SingaporeEnglish,
+            "en-GB" => Self::BritishEnglish,
+            "en-US" => Self::AmericanEnglish,
+            "en-SG" => Self::SingaporeEnglish,
 
-            "it-IT" => Locale::Italian,
-            "de-DE" => Locale::German,
-            "es-ES" => Locale::Spanish,
-            "fr-FR" => Locale::French,
+            "it-IT" => Self::Italian,
+            "de-DE" => Self::German,
+            "es-ES" => Self::Spanish,
+            "fr-FR" => Self::French,
 
-            "ja-JP" => Locale::Japanese,
-            "ko-KR" => Locale::Korean,
-            "zh-HK" => Locale::HongKongChinese,
-            "zh-TW" => Locale::TaiwaneseChinese,
+            "ja-JP" => Self::Japanese,
+            "ko-KR" => Self::Korean,
+            "zh-HK" => Self::HongKongChinese,
+            "zh-TW" => Self::TaiwaneseChinese,
 
-            _ => Locale::Default
+            _ => Self::Default,
         }
     }
 }
 
-impl ToString for Locale {
-    fn to_string(&self) -> String {
-        match self {
-            Locale::BritishEnglish => "en-GB",
-            Locale::AmericanEnglish => "en-US",
-            Locale::SingaporeEnglish => "en-SG",
+impl Display for Locale {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::BritishEnglish => "en-GB",
+            Self::AmericanEnglish => "en-US",
+            Self::SingaporeEnglish => "en-SG",
 
-            Locale::Italian => "it-IT",
-            Locale::German => "de-DE",
-            Locale::Spanish => "es-ES",
-            Locale::French => "fr-FR",
+            Self::Italian => "it-IT",
+            Self::German => "de-DE",
+            Self::Spanish => "es-ES",
+            Self::French => "fr-FR",
 
-            Locale::Japanese => "ja-JP",
-            Locale::Korean => "ko-KR",
-            Locale::HongKongChinese => "zh-HK",
-            Locale::TaiwaneseChinese => "zh-TW",
+            Self::Japanese => "ja-JP",
+            Self::Korean => "ko-KR",
+            Self::HongKongChinese => "zh-HK",
+            Self::TaiwaneseChinese => "zh-TW",
 
-            Locale::Default => "default",
-        }.to_string()
+            Self::Default => "default",
+        })
     }
 }
 
 impl Locale {
     pub fn path(&self) -> String {
         match self {
-            Locale::Default => "default".to_string(),
-            _ => format!("localized.{}", self.to_string())
+            Self::Default => "default".to_string(),
+            _ => format!("localized.{}", self),
         }
     }
 
     pub fn iso_code(&self) -> String {
         match self {
-            Locale::Default => "default".to_string(),
-            _ => self.to_string().split("-").last().unwrap().to_string()
+            Self::Default => "default".to_string(),
+            _ => self.to_string().split("-").last().unwrap().to_string(),
         }
     }
 }
