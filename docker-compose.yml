@@ -1,5 +1,6 @@
 services:
   api:
+    image: ghcr.io/destinationhome/infra-catalogue-api:latest
     build:
       context: .
       dockerfile: Dockerfile
