@@ -338,17 +338,17 @@ impl Object {
         let name = localized_field!(self, names, locale).unwrap_or_default();
         let description = localized_field!(self, descriptions, locale).unwrap_or_default();
 
-        let bundle = [name, description]
-            .iter()
-            .any(|s| BUNDLE_REGEX.is_match(s).unwrap());
+        
 
-        bundle
+        [name, description]
+            .iter()
+            .any(|s| BUNDLE_REGEX.is_match(s).unwrap())
     }
 
     /// Calculate the type of the object
     async fn r#type(&self) -> Type {
-        if let Some(entitlements) = &self.entitlements {
-            if let Some(entitlement_id) = &entitlements.entitlement_id {
+        if let Some(entitlements) = &self.entitlements
+            && let Some(entitlement_id) = &entitlements.entitlement_id {
                 let values = entitlement_id.iter().map(|e| e.value.clone());
 
                 let is_reward = values.clone().any(|v| REWARD_REGEX.is_match(&v).unwrap());
@@ -363,7 +363,6 @@ impl Object {
 
                 return Type::Other;
             }
-        }
 
         Type::Other
     }

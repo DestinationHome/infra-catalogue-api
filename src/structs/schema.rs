@@ -294,11 +294,10 @@ fn parse_facet_items<T, F>(
                     .map(|v| v as u64)
                     .or_else(|| item_doc.get_i64("count").ok().map(|v| v as u64));
 
-                if let (Some(id), Some(cnt)) = (raw_id, count) {
-                    if let Some(parsed) = parse_id(id as u8) {
+                if let (Some(id), Some(cnt)) = (raw_id, count)
+                    && let Some(parsed) = parse_id(id as u8) {
                         result.push(make_facet(parsed, cnt));
                     }
-                }
             }
         }
     }
@@ -311,8 +310,8 @@ async fn find_object_page(
     first: u32,
     after: Option<&str>,
 ) -> GraphQLResult<ObjectConnection> {
-    if let Ok(meili_url) = std::env::var("MEILI_URL") {
-        if !meili_url.trim().is_empty() {
+    if let Ok(meili_url) = std::env::var("MEILI_URL")
+        && !meili_url.trim().is_empty() {
             match search_meili(&meili_url, input, first as usize, after, database).await {
                 Ok(connection) => return Ok(connection),
                 Err(err) => {
@@ -322,7 +321,6 @@ async fn find_object_page(
                 }
             }
         }
-    }
 
     let page_limit = (first + 1) as i64;
     let locale = input.locale.unwrap_or_default().to_string();
