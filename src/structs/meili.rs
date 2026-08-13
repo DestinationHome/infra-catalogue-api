@@ -187,7 +187,11 @@ pub fn sync_meili_from_mongodb_background(meili_url: String, database: Database)
         let base = meili_url.trim_end_matches('/');
         let stats_url = format!("{base}/indexes/odc/stats");
 
-        let mongo_count = database.objects.estimated_document_count(None).await.unwrap_or(0);
+        let mongo_count = database
+            .objects
+            .estimated_document_count(None)
+            .await
+            .unwrap_or(0);
         let meili_count = match HTTP_CLIENT.get(&stats_url).send().await {
             Ok(resp) if resp.status().is_success() => {
                 let stats: serde_json::Value = resp.json().await.unwrap_or_default();
@@ -200,7 +204,9 @@ pub fn sync_meili_from_mongodb_background(meili_url: String, database: Database)
         };
 
         if mongo_count > 0 && meili_count >= mongo_count {
-            log::info!("Meilisearch odc index is fully populated ({meili_count}/{mongo_count} docs).");
+            log::info!(
+                "Meilisearch odc index is fully populated ({meili_count}/{mongo_count} docs)."
+            );
             return;
         }
 
@@ -332,7 +338,10 @@ fn build_meili_filter(input: &ObjectSearchInput) -> Vec<String> {
     let mut filters: Vec<String> = Vec::new();
 
     if let Some(types) = input.types.as_ref().filter(|v| !v.is_empty()) {
-        let vals: Vec<String> = types.iter().map(|t| format!("type = {}", *t as u8)).collect();
+        let vals: Vec<String> = types
+            .iter()
+            .map(|t| format!("type = {}", *t as u8))
+            .collect();
         filters.push(format!("({})", vals.join(" OR ")));
     }
     if let Some(types) = input.clothing_types.as_ref().filter(|v| !v.is_empty()) {
@@ -389,7 +398,12 @@ fn parse_meili_facets(dist: &HashMap<String, HashMap<String, u64>>) -> ObjectFac
         items.sort_by_key(|(k, _)| *k);
         items
             .into_iter()
-            .filter_map(|(k, v)| ObjectType::try_from(k).ok().map(|t| TypeFacet { r#type: t, count: v }))
+            .filter_map(|(k, v)| {
+                ObjectType::try_from(k).ok().map(|t| TypeFacet {
+                    r#type: t,
+                    count: v,
+                })
+            })
             .collect()
     });
 
@@ -399,9 +413,10 @@ fn parse_meili_facets(dist: &HashMap<String, HashMap<String, u64>>) -> ObjectFac
         items
             .into_iter()
             .filter_map(|(k, v)| {
-                ClothingType::try_from(k)
-                    .ok()
-                    .map(|t| ClothingTypeFacet { clothing_type: t, count: v })
+                ClothingType::try_from(k).ok().map(|t| ClothingTypeFacet {
+                    clothing_type: t,
+                    count: v,
+                })
             })
             .collect()
     });
@@ -412,9 +427,10 @@ fn parse_meili_facets(dist: &HashMap<String, HashMap<String, u64>>) -> ObjectFac
         items
             .into_iter()
             .filter_map(|(k, v)| {
-                FurnitureType::try_from(k)
-                    .ok()
-                    .map(|t| FurnitureTypeFacet { furniture_type: t, count: v })
+                FurnitureType::try_from(k).ok().map(|t| FurnitureTypeFacet {
+                    furniture_type: t,
+                    count: v,
+                })
             })
             .collect()
     });
@@ -425,9 +441,10 @@ fn parse_meili_facets(dist: &HashMap<String, HashMap<String, u64>>) -> ObjectFac
         items
             .into_iter()
             .filter_map(|(k, v)| {
-                SceneType::try_from(k)
-                    .ok()
-                    .map(|t| SceneTypeFacet { scene_type: t, count: v })
+                SceneType::try_from(k).ok().map(|t| SceneTypeFacet {
+                    scene_type: t,
+                    count: v,
+                })
             })
             .collect()
     });
@@ -437,7 +454,12 @@ fn parse_meili_facets(dist: &HashMap<String, HashMap<String, u64>>) -> ObjectFac
         items.sort_by_key(|(k, _)| *k);
         items
             .into_iter()
-            .filter_map(|(k, v)| Gender::try_from(k).ok().map(|g| GenderFacet { gender: g, count: v }))
+            .filter_map(|(k, v)| {
+                Gender::try_from(k).ok().map(|g| GenderFacet {
+                    gender: g,
+                    count: v,
+                })
+            })
             .collect()
     });
 
@@ -471,14 +493,16 @@ pub async fn search_meili(
 
     if !sort_rules.is_empty() {
         body["sort"] = serde_json::Value::Array(
-            sort_rules.into_iter().map(serde_json::Value::String).collect(),
+            sort_rules
+                .into_iter()
+                .map(serde_json::Value::String)
+                .collect(),
         );
     }
 
     if !filter.is_empty() {
-        body["filter"] = serde_json::Value::Array(
-            filter.into_iter().map(serde_json::Value::String).collect(),
-        );
+        body["filter"] =
+            serde_json::Value::Array(filter.into_iter().map(serde_json::Value::String).collect());
     }
 
     let endpoint = format!("{}/indexes/odc/search", meili_url.trim_end_matches('/'));

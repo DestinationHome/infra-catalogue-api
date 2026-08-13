@@ -1,23 +1,23 @@
-#[cfg(debug_assertions)]
-use std::collections::BTreeMap;
 use async_graphql::{
-    futures_util::StreamExt, Context, EmptySubscription, Enum, Error, InputObject,
-    Object as GraphQLObject, Result as GraphQLResult, Schema, SimpleObject,
+    Context, EmptySubscription, Enum, Error, InputObject, Object as GraphQLObject,
+    Result as GraphQLResult, Schema, SimpleObject, futures_util::StreamExt,
 };
 use base64::Engine as _;
 use bson::doc;
 #[cfg(debug_assertions)]
-use hmac::{digest::KeyInit, Hmac};
+use hmac::{Hmac, digest::KeyInit};
 #[cfg(debug_assertions)]
 use jwt::{AlgorithmType, Header, SignWithKey, Token};
 #[cfg(debug_assertions)]
 use sha2::Sha512;
+#[cfg(debug_assertions)]
+use std::collections::BTreeMap;
 
 use super::{
     api::Database,
-    collection::{Collection, COLLECTION_SIZE},
-    object::{ClothingType, FurnitureType, Gender, Locale, ObjectType, SceneType},
+    collection::{COLLECTION_SIZE, Collection},
     meili::{index_objects_in_meili_background, search_meili},
+    object::{ClothingType, FurnitureType, Gender, Locale, ObjectType, SceneType},
     user::User,
 };
 use crate::Object;
@@ -313,18 +313,12 @@ async fn find_object_page(
 ) -> GraphQLResult<ObjectConnection> {
     if let Ok(meili_url) = std::env::var("MEILI_URL") {
         if !meili_url.trim().is_empty() {
-            match search_meili(
-                &meili_url,
-                input,
-                first as usize,
-                after,
-                database,
-            )
-            .await
-            {
+            match search_meili(&meili_url, input, first as usize, after, database).await {
                 Ok(connection) => return Ok(connection),
                 Err(err) => {
-                    log::warn!("Meilisearch search failed ({err}), falling back to MongoDB aggregation");
+                    log::warn!(
+                        "Meilisearch search failed ({err}), falling back to MongoDB aggregation"
+                    );
                 }
             }
         }

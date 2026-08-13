@@ -1,5 +1,5 @@
 use bson::doc;
-use mongodb::{options::IndexOptions, IndexModel};
+use mongodb::{IndexModel, options::IndexOptions};
 
 use super::{collection::Collection, object::Object, user::User};
 
@@ -57,10 +57,12 @@ impl Database {
             .await?;
 
         // 3. odc_users indexes
-        let user_indexes = vec![IndexModel::builder()
-            .keys(doc! { "uuid": 1 })
-            .options(unique_options.clone())
-            .build()];
+        let user_indexes = vec![
+            IndexModel::builder()
+                .keys(doc! { "uuid": 1 })
+                .options(unique_options.clone())
+                .build(),
+        ];
         self.users.create_indexes(user_indexes, None).await?;
 
         log::info!("MongoDB indexes verified successfully.");

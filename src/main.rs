@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 use actix_cors::Cors;
 #[cfg(debug_assertions)]
 use actix_web::HttpResponse;
-use actix_web::{guard, middleware::Logger, web, App, HttpRequest, HttpServer};
+use actix_web::{App, HttpRequest, HttpServer, guard, middleware::Logger, web};
 #[cfg(debug_assertions)]
-use async_graphql::http::{playground_source, GraphQLPlaygroundConfig};
+use async_graphql::http::{GraphQLPlaygroundConfig, playground_source};
 use async_graphql::{EmptySubscription, Schema};
 use async_graphql_actix_web::{GraphQLRequest, GraphQLResponse};
 

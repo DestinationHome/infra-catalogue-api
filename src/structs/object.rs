@@ -5,7 +5,7 @@
 
 use std::{collections::BTreeMap, fmt::Display};
 
-use async_graphql::{futures_util::StreamExt, ComplexObject, Enum, OutputType, SimpleObject};
+use async_graphql::{ComplexObject, Enum, OutputType, SimpleObject, futures_util::StreamExt};
 use bson::doc;
 use fancy_regex::Regex;
 use lazy_static::lazy_static;
