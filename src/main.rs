@@ -59,7 +59,7 @@ async fn get_user_from_token(token: &str, database: &Database) -> Option<User> {
 }
 
 #[allow(clippy::future_not_send, reason = "We can't modify Actix")]
-async fn index(
+async fn graphql(
     schema: web::Data<ObjectSchema>,
     database: web::Data<Database>,
     req: HttpRequest,
@@ -164,7 +164,7 @@ async fn main() -> std::io::Result<()> {
         let app = App::new()
             .app_data(web::Data::new(schema.clone()))
             .app_data(web::Data::new(database.clone()))
-            .service(web::resource("/").guard(guard::Post()).to(index))
+            .service(web::resource("/graphql").guard(guard::Post()).to(graphql))
             .wrap(Logger::default())
             .wrap(cors);
 
