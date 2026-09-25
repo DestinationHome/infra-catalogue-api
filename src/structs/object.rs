@@ -97,6 +97,7 @@ pub enum Type {
 
 #[derive(Serialize_repr, Deserialize_repr, Enum, Clone, Copy, Eq, PartialEq, Debug)]
 #[repr(u8)]
+#[graphql(rename_items = "PascalCase")] // todo: fixme (inconsistent with others)
 pub enum Gender {
     Male = 0,
     Female = 1,
